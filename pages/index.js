@@ -191,42 +191,85 @@ export default function Home() {
     setStep("analyzing"); setError("");
 
     try {
-      // STEP 1: Product analysis
-      setStatus("🔍 Analizzo il prodotto...");
+      // STEP 1: SCRAPE the actual landing page to get real product info
+      setStatus("🔍 Leggo la landing page del prodotto...");
+
+      let scrapedText = "";
+      let scrapedImages = [];
+      let scrapedTitle = "";
+      try {
+        const scrapeRes = await fetch("/api/scrape", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: pLink }),
+        });
+        if (scrapeRes.ok) {
+          const scrapeData = await scrapeRes.json();
+          scrapedText = scrapeData.text || "";
+          scrapedImages = scrapeData.images || [];
+          scrapedTitle = scrapeData.title || "";
+        }
+      } catch (e) { console.warn("Scrape failed:", e); }
+
+      if (!scrapedText || scrapedText.length < 50) {
+        setError("Non riesco a leggere la landing page. Verifica che il link sia corretto e accessibile.");
+        setStep("input");
+        return;
+      }
+
+      setStatus("🧠 Analizzo il prodotto dalla landing page...");
       const p1 = await callAI(oaiKey,
-        "Esperto affiliate marketing italiano. SOLO JSON valido. Niente backtick.",
-        `Link prodotto: ${pLink}\nNetwork: offerte2019.network (salute/bellezza Italia)\nSe contiene "eslow"→Eslow Age siero anti-age con esosomi vegetali, acido ialuronico, elastina, collagene. 2x€49.99.\nAnalizza URL e deduci.\n\nJSON:\n{"productName":"","category":"bellezza|salute","targetAudience":"","mainBenefits":["","","","",""],"ingredients":["","","",""],"price":"","niche":"","keyFeatures":["","",""]}`, 700);
+        "Sei un analista di marketing esperto. Analizza il contenuto di questa landing page e estrai le informazioni sul prodotto. Rispondi SOLO con JSON valido. Niente backtick. Niente testo extra.",
+        `Ecco il contenuto testuale di una landing page di un prodotto:
+
+TITOLO PAGINA: ${scrapedTitle}
+URL: ${pLink}
+
+CONTENUTO:
+${scrapedText}
+
+Analizza attentamente TUTTO il contenuto e estrai:
+- Il NOME ESATTO del prodotto come scritto nella landing
+- La CATEGORIA (bellezza, salute, dimagrimento, rimedi, benessere, sport, capelli, ecc.)
+- Il TARGET specifico (chi è il cliente ideale)
+- I BENEFICI PRINCIPALI elencati nella landing (almeno 5)
+- Gli INGREDIENTI o componenti menzionati
+- Il PREZZO e le offerte menzionate
+- La NICCHIA specifica
+- Le CARATTERISTICHE UNICHE del prodotto
+- Il PROBLEMA PRINCIPALE che il prodotto risolve
+
+RISPONDI SOLO con questo JSON:
+{"productName":"nome esatto","category":"categoria","targetAudience":"descrizione target specifico","mainBenefits":["beneficio1","beneficio2","beneficio3","beneficio4","beneficio5"],"ingredients":["ingrediente1","ingrediente2","ingrediente3"],"price":"prezzo come nella landing","niche":"nicchia specifica","keyFeatures":["feature1","feature2","feature3"],"mainProblem":"il problema principale che risolve","uniqueSellingPoint":"cosa lo rende unico"}`, 800);
+
       let product = extractJSON(p1);
       if (!product || !product.productName) {
-        const u = (pLink + embedCode).toLowerCase();
-        if (u.includes("eslow")) {
-          product = { productName: "Eslow Age", category: "bellezza", targetAudience: "Donne 35-65 anni con rughe e perdita di elasticità", mainBenefits: ["Riduce rughe e segni d'espressione", "Stimola collagene ed elastina", "Idratazione profonda", "Rinnovamento cellulare con esosomi", "Effetto lifting naturale"], ingredients: ["Esosomi vegetali", "Acido Ialuronico", "Elastina", "Collagene"], price: "2x €49.99", niche: "Anti-age esosomi vegetali", keyFeatures: ["Esosomi vegetali ultima generazione", "100% naturale", "8847+ clienti soddisfatti"] };
-        } else {
-          product = { productName: "Prodotto Benessere", category: "salute", targetAudience: "Adulti", mainBenefits: ["Efficace", "Naturale", "Sicuro", "Risultati visibili"], ingredients: ["Estratti naturali"], price: "Offerta speciale", niche: "Benessere", keyFeatures: ["Made in Italy"] };
-        }
+        setError("Non riesco ad analizzare il prodotto dalla landing page. Riprova.");
+        setStep("input");
+        return;
       }
       setProd(product);
 
-      // STEP 2: Long Tail Keywords basate su INTENTO DI RICERCA (non nome prodotto)
+      // STEP 2: Long Tail Keywords basate su INTENTO DI RICERCA
       setStatus("🔍 Ricerco long tail keyword per " + product.productName + "...");
       const p2 = await callAI(oaiKey, "SEO specialist italiano esperto in long tail keyword e search intent. SOLO JSON. Niente backtick.",
-        `Genera una LONG TAIL KEYWORD basata sull'INTENTO DI RICERCA dell'utente per un prodotto come "${product.productName}".
+        `Genera una LONG TAIL KEYWORD basata sull'INTENTO DI RICERCA per questo prodotto.
 
+PRODOTTO: ${product.productName}
 CATEGORIA: ${product.category}
 TARGET: ${product.targetAudience}
-PROBLEMA CHE RISOLVE: ${product.mainBenefits.join(", ")}
+PROBLEMA CHE RISOLVE: ${product.mainProblem || product.mainBenefits.join(", ")}
+BENEFICI: ${product.mainBenefits.join(", ")}
 NICCHIA: ${product.niche}
 
-REGOLE IMPORTANTI:
+REGOLE:
 - La keyword NON deve contenere il nome del prodotto "${product.productName}"
-- Deve essere una long tail keyword (4-8 parole) basata su cosa cercherebbe l'utente su Google
-- Deve riflettere un PROBLEMA o un INTENTO DI RICERCA reale
-- Esempi di buone long tail: "come eliminare le rughe profonde in modo naturale", "siero anti rughe naturale che funziona davvero", "rimedi naturali per pelle cadente dopo i 40", "come ringiovanire la pelle del viso senza chirurgia"
-- Il titolo deve essere tipo domanda/guida che attira click da Google
-- Lo slug deve essere lungo e SEO friendly
+- Long tail 4-8 parole basata su cosa cercherebbe l'utente su Google
+- Deve riflettere il PROBLEMA che il prodotto risolve: "${product.mainProblem || product.mainBenefits[0]}"
+- Esempi formato: "come risolvere [problema] in modo naturale", "rimedi naturali per [problema] che funzionano", "miglior [soluzione] naturale senza [effetti negativi]"
 
 JSON:
-{"keyword":"long tail 4-8 parole su intento ricerca","title":"Titolo H1 che risponde all'intento di ricerca (max 70 car)","metaTitle":"Meta title 50-60 car con keyword","metaDescription":"Meta description 130-155 car che promette la soluzione","slug":"slug-lungo-seo","excerpt":"2 frasi che descrivono il problema e la promessa","tags":["tag1","tag2","tag3","tag4","tag5"],"searchIntent":"descrizione dell intento di ricerca","problem":"il problema specifico del target","agitation":"perché il problema peggiora se non risolto"}`, 700);
+{"keyword":"long tail 4-8 parole","title":"Titolo H1 max 70 car","metaTitle":"Meta title 50-60 car con keyword","metaDescription":"Meta desc 130-155 car con keyword + CTA","slug":"slug-seo","excerpt":"2 frasi","tags":["t1","t2","t3","t4","t5"],"searchIntent":"intento ricerca","problem":"problema specifico","agitation":"perché peggiora"}`, 700);
       let meta = extractJSON(p2);
       if (!meta || !meta.keyword) {
         // Fallback con long tail generiche per categoria
@@ -265,95 +308,89 @@ JSON:
       if (!img1) img1 = getRandomImage("ingredients");
       if (!img2) img2 = getRandomImage("results");
 
-      // STEP 5: Body con struttura PAS (Problem → Agitate → Solve)
+      // STEP 5: Body con struttura PAS — form 1 volta in fondo, CTA anchor link nel testo
       setStatus(`✍️ Scrivo articolo PAS su "${meta.keyword}" (${wc} parole)...`);
       const reviewsHtml = reviews.map(r => `<div style="background:#f8f9fa;border-radius:12px;padding:20px;margin:12px 0;border-left:4px solid #6366f1"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><strong style="color:#1a1a2e">${r.name}</strong><span style="color:#f59e0b;font-size:16px">${"★".repeat(r.stars)}${"☆".repeat(5 - (r.stars||5))}</span></div><p style="color:#374151;margin:0 0 6px;font-size:15px;line-height:1.6">"${r.text}"</p><span style="color:#6b7280;font-size:13px">${r.age} anni, ${r.city}</span></div>`).join("\n");
 
-      const formEmbedHtml = `<div style="background:linear-gradient(135deg,#667eea,#764ba2);border-radius:16px;padding:30px;text-align:center;margin:30px 0"><h3 style="color:#fff;margin:0 0 15px;font-size:22px">🎁 Prova Adesso — Offerta Speciale</h3><p style="color:rgba(255,255,255,.9);margin:0 0 20px">${product.price} — Spedizione Gratuita 24/48h</p><div style="background:#fff;border-radius:12px;padding:20px;max-width:500px;margin:0 auto">${embedCode}</div></div>`;
+      // CTA anchor button that scrolls to the form at the bottom
+      const ctaAnchorHtml = `<div style="text-align:center;margin:25px 0"><a href="#ordina-ora" style="display:inline-block;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;padding:16px 40px;border-radius:50px;font-weight:700;text-decoration:none;font-size:18px;box-shadow:0 4px 15px rgba(102,126,234,0.4)">👉 Scopri l'Offerta Speciale →</a></div>`;
+
+      // Form embed block — only at the bottom with anchor ID
+      const formBottomHtml = `<div id="ordina-ora" style="background:linear-gradient(135deg,#667eea,#764ba2);border-radius:16px;padding:30px;text-align:center;margin:40px 0"><h3 style="color:#fff;margin:0 0 15px;font-size:24px">🎁 Ordina ${product.productName} — Offerta Speciale</h3><p style="color:rgba(255,255,255,.9);margin:0 0 20px;font-size:16px">${product.price} — Spedizione Gratuita</p><div style="background:#fff;border-radius:12px;padding:20px;max-width:500px;margin:0 auto">${embedCode}</div></div>`;
+
+      const targetKwCount = Math.max(Math.round(wc / 50), 20);
 
       const bodyResult = await callAI(oaiKey,
-        `Sei un copywriter SEO italiano esperto in content marketing persuasivo per "Vivere Naturale". Scrivi articoli con framework PAS (Problem-Agitate-Solve). SOLO HTML puro. Niente JSON, niente backtick, niente testo extra. Inizia direttamente con <p>.`,
+        `Sei un copywriter SEO italiano esperto in content marketing persuasivo per "Vivere Naturale". Scrivi con framework PAS (Problem-Agitate-Solve). SOLO HTML puro. Niente JSON, backtick o testo extra. Inizia con <p>.`,
         `SCRIVI UN ARTICOLO HTML DI ${wc} PAROLE.
 
-=== STRATEGIA SEO LONG TAIL ===
-KEYWORD PRINCIPALE: "${meta.keyword}"
-INTENTO DI RICERCA: ${meta.searchIntent || "L'utente cerca una soluzione naturale al problema"}
-REGOLA: La keyword "${meta.keyword}" DEVE apparire almeno ${Math.max(Math.round(wc / 70), 12)} volte nel testo, distribuita naturalmente.
-Il nome del prodotto "${product.productName}" NON deve apparire prima della sezione SOLUZIONE. Prima devi parlare solo del PROBLEMA.
+=== SEO LONG TAIL ===
+KEYWORD: "${meta.keyword}"
+INTENTO: ${meta.searchIntent || "L'utente cerca una soluzione al problema"}
+REGOLA DENSITÀ: "${meta.keyword}" DEVE apparire ALMENO ${targetKwCount} volte. In: primo paragrafo (2x), almeno 3 H2, inizio di 8+ paragrafi, FAQ (3x), conclusione (2x).
 
-=== DATI PRODOTTO (da usare SOLO nella sezione Soluzione) ===
+=== DATI PRODOTTO (estratti dalla landing page reale) ===
 NOME: ${product.productName}
+PROBLEMA CHE RISOLVE: ${product.mainProblem || product.mainBenefits[0]}
+PUNTO UNICO: ${product.uniqueSellingPoint || product.keyFeatures?.[0] || "Formula innovativa"}
 BENEFICI: ${product.mainBenefits.join(", ")}
 INGREDIENTI: ${product.ingredients.join(", ")}
 TARGET: ${product.targetAudience}
 PREZZO: ${product.price}
 
-=== STRUTTURA PAS OBBLIGATORIA ===
+=== CTA (inserisci questo HTML esatto 3 volte nel testo — dopo il problema, dopo la soluzione, dopo le recensioni) ===
+${ctaAnchorHtml}
 
---- PARTE 1: PROBLEMA (25% dell'articolo) ---
-<p>[Hook emotivo. L'utente deve pensare "parla proprio di me". Usa la keyword nelle prime 2 frasi. Descrivi il PROBLEMA che il target vive quotidianamente. Usa "tu" diretto. Empatia totale.]</p>
+=== STRUTTURA PAS ===
 
-<h2>[Titolo H2 che descrive il problema con keyword — es: "Perché le Rughe Profonde Sembrano Impossibili da Eliminare"]</h2>
-<h3>[Sotto-problema 1]</h3>
-<p>[Descrivi il problema con dettagli specifici e relatabili. Statistiche, fatti.]</p>
-<h3>[Sotto-problema 2]</h3>
-<p>[Un altro aspetto del problema che il target riconosce.]</p>
-<h3>[Sotto-problema 3]</h3>
-<p>[Impatto emotivo/sociale del problema.]</p>
+PARTE 1 — PROBLEMA (25%):
+<p>[Hook emotivo. Keyword nelle prime 2 frasi. Descrivi il PROBLEMA: "${product.mainProblem || product.mainBenefits[0]}". Il lettore deve pensare "parla di me".]</p>
+<h2>[Problema con keyword]</h2>
+<h3>[Sotto-problema 1]</h3><p>[Dettagli specifici]</p>
+<h3>[Sotto-problema 2]</h3><p>[Impatto emotivo]</p>
+<h3>[Sotto-problema 3]</h3><p>[Conseguenze]</p>
 
-<figure style="margin:24px 0;text-align:center"><img src="${img1}" alt="${meta.keyword}" style="width:100%;border-radius:12px;max-height:400px;object-fit:cover"/><figcaption style="color:#666;font-size:14px;margin-top:8px">Il problema che affligge milioni di persone</figcaption></figure>
+<figure style="margin:24px 0;text-align:center"><img src="${img1}" alt="${meta.keyword}" style="width:100%;border-radius:12px;max-height:400px;object-fit:cover"/><figcaption style="color:#666;font-size:14px;margin-top:8px">${product.mainProblem || "Il problema"}</figcaption></figure>
 
---- PARTE 2: AGITAZIONE (20% dell'articolo) ---
-<h2>[Titolo H2 che amplifica il problema — es: "Cosa Succede Se Non Intervieni Adesso"]</h2>
-<p>[Aggrava il problema. Spiega perché peggiorerà. Cosa succede se non si agisce. Frustrazioni dei rimedi che non funzionano. Creme costose inutili, trattamenti invasivi, promesse non mantenute.]</p>
-<h3>[Perché i rimedi tradizionali falliscono]</h3>
-<p>[Spiega perché le soluzioni comuni non funzionano davvero. Sii specifico.]</p>
-<h3>[Il costo dell'inazione]</h3>
-<p>[Conseguenze emotive, estetiche, di autostima. Crea urgenza.]</p>
+[CTA ANCHOR 1]
 
---- PARTE 3: SOLUZIONE (35% dell'articolo) ---
-<h2>[Titolo H2 che introduce la soluzione — es: "La Scoperta Scientifica che Sta Cambiando Tutto"]</h2>
-<p>[Qui introduci ${product.productName} come LA soluzione. Spiega PERCHÉ funziona diversamente dagli altri. Base scientifica. Ingredienti innovativi.]</p>
+PARTE 2 — AGITAZIONE (20%):
+<h2>[Cosa succede se non agisci — con keyword]</h2>
+<h3>[Perché i rimedi comuni falliscono]</h3><p>[Specifico]</p>
+<h3>[Il costo dell'inazione]</h3><p>[Urgenza emotiva]</p>
 
-<h3>[Come funziona — meccanismo d'azione]</h3>
-<p>[Spiega il meccanismo: ${product.ingredients.join(", ")}. Perché questi ingredienti sono diversi.]</p>
+PARTE 3 — SOLUZIONE (35%):
+<h2>[La soluzione — con keyword]</h2>
+<p>[Qui introduci ${product.productName}. Spiega PERCHÉ funziona.]</p>
+<h3>[Come funziona]</h3><p>[Meccanismo: ${product.ingredients.join(", ")}]</p>
+<h3>[Risultati concreti]</h3><p>[Con tempi reali]</p>
+<h3>[Come si usa]</h3><p>[Istruzioni]</p>
 
-<h3>[I risultati concreti]</h3>
-<p>[Benefici specifici con tempi: "già dalla prima settimana...", "dopo 30 giorni..."]</p>
+[CTA ANCHOR 2]
 
-<h3>[Come si usa]</h3>
-<p>[Istruzioni pratiche di utilizzo.]</p>
-
-${formEmbedHtml}
-
---- PARTE 4: PROVA SOCIALE — RECENSIONI (15% dell'articolo) ---
-<h2>Testimonianze di Chi Ha Già Provato</h2>
-<p>Migliaia di persone hanno già trovato la soluzione. Ecco le loro esperienze:</p>
+PARTE 4 — RECENSIONI:
+<h2>Chi Ha Già Provato Conferma i Risultati</h2>
 ${reviewsHtml}
 
 <figure style="margin:24px 0;text-align:center"><img src="${img2}" alt="${meta.keyword} risultati" style="width:100%;border-radius:12px;max-height:400px;object-fit:cover"/><figcaption style="color:#666;font-size:14px;margin-top:8px">Risultati reali</figcaption></figure>
 
-${formEmbedHtml}
+[CTA ANCHOR 3]
 
---- PARTE 5: FAQ (5% dell'articolo) ---
+PARTE 5 — FAQ:
 <div class="faq-schema">
 <h2>Domande Frequenti</h2>
-[5 domande basate sull'INTENTO DI RICERCA, non sul prodotto. Es: "È possibile eliminare le rughe senza chirurgia?", "Quanto tempo serve per vedere risultati?", "Ci sono effetti collaterali?", "Funziona anche per pelli sensibili?", "Come ordinare e quanto costa?"]
-Ogni domanda come <h3> con risposta <p>
+[5 FAQ basate sull'intento di ricerca, ogni domanda come <h3> con risposta <p>]
 </div>
 
-${formEmbedHtml}
+PARTE 6 — FORM ORDINE (inserisci questo HTML esatto UNA SOLA VOLTA qui alla fine):
+${formBottomHtml}
 
-=== REGOLE DI SCRITTURA ===
-- Tono: giornalistico ma empatico, come un'amica esperta che ti consiglia
-- NON menzionare "${product.productName}" prima della sezione SOLUZIONE
-- KEYWORD DENSITY CRITICA: "${meta.keyword}" deve apparire ALMENO ${Math.max(Math.round(wc / 50), 20)} volte nel testo totale
-- Inserisci la keyword in: primo paragrafo (2x), ogni H2 (almeno 3), inizio di 8+ paragrafi, FAQ (3x), conclusione (2x)
-- Paragrafi brevi (2-3 frasi max)
-- Usa domande retoriche per mantenere attenzione
-- Transizioni emotive tra le sezioni
-- ESATTAMENTE ${wc} parole
-- SOLO HTML. Inizia con <p>.`, Math.max(wc * 3, 6000));
+=== REGOLE ===
+- NON menzionare "${product.productName}" prima della PARTE 3 (Soluzione)
+- Keyword density: "${meta.keyword}" almeno ${targetKwCount} volte
+- Paragrafi brevi (2-3 frasi)
+- Tono empatico, come un'amica esperta
+- ${wc} parole. SOLO HTML.`, Math.max(wc * 4, 8000));
 
       let body = bodyResult.trim();
       if (body.startsWith("```")) body = body.replace(/^```html?\s*/i, "").replace(/```\s*$/i, "").trim();
@@ -529,8 +566,8 @@ Rispondi SOLO con il nuovo testo, nient'altro.`, 300);
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <span style={{ fontSize: 24 }}>🚀</span>
             <div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: "#fff" }}>AI Affiliate Publisher <span style={{ fontSize: 10, color: "#818cf8" }}>v7</span></div>
-              <div style={{ fontSize: 10, color: "#64748b" }}>Long Tail SEO + PAS Framework + Form Embed → WordPress + Yoast</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#fff" }}>AI Affiliate Publisher <span style={{ fontSize: 10, color: "#818cf8" }}>v8</span></div>
+              <div style={{ fontSize: 10, color: "#64748b" }}>Scraping Landing + Long Tail SEO + PAS + Form Embed → WordPress</div>
             </div>
           </div>
           <button onClick={() => setShowCfg(!showCfg)} style={{ background: showCfg ? "#6366f1" : "#2a2a4a", border: "none", color: "#fff", padding: "6px 12px", borderRadius: 7, cursor: "pointer", fontSize: 12 }}>⚙️</button>
