@@ -347,7 +347,8 @@ ${formEmbedHtml}
 === REGOLE DI SCRITTURA ===
 - Tono: giornalistico ma empatico, come un'amica esperta che ti consiglia
 - NON menzionare "${product.productName}" prima della sezione SOLUZIONE
-- Keyword density "${meta.keyword}" 1.5-2.5%
+- KEYWORD DENSITY CRITICA: "${meta.keyword}" deve apparire ALMENO ${Math.max(Math.round(wc / 50), 20)} volte nel testo totale
+- Inserisci la keyword in: primo paragrafo (2x), ogni H2 (almeno 3), inizio di 8+ paragrafi, FAQ (3x), conclusione (2x)
 - Paragrafi brevi (2-3 frasi max)
 - Usa domande retoriche per mantenere attenzione
 - Transizioni emotive tra le sezioni
@@ -368,9 +369,36 @@ ${formEmbedHtml}
     setRKey(key);
     try {
       if (key === "body") {
-        const r = await callAI(oaiKey, "Copywriter SEO italiano. SOLO HTML.",
-          `RISCRIVI articolo su ${prod?.productName}. Keyword: "${art.keyword}" (densità 1.5-2.5%). ${instr || "Migliora SEO."} Mantieni immagini, form ordine embed, recensioni. ${wc} parole. Link: ${pLink}\n\n${art.body}`,
-          Math.max(wc * 3, 5000));
+        // Calculate how many times the keyword should appear
+        const targetOccurrences = Math.max(Math.round(wc / 50), 20);
+        const r = await callAI(oaiKey, "Copywriter SEO italiano esperto in keyword density. SOLO HTML puro. Niente backtick.",
+          `RISCRIVI questo articolo HTML applicando queste modifiche:
+
+${instr || "Migliora la densità della keyword e la qualità SEO."}
+
+=== REGOLA CRITICA KEYWORD DENSITY ===
+La keyword esatta "${art.keyword}" DEVE apparire ALMENO ${targetOccurrences} VOLTE nel testo riscritto.
+Attualmente la densità è troppo bassa. Devi inserire "${art.keyword}" in:
+- Il primo paragrafo (2 volte)
+- Ogni titolo H2 (almeno in 3 su 5)
+- All'inizio di almeno 8 paragrafi diversi
+- Nelle risposte FAQ (almeno 3 volte)
+- Nella conclusione (2 volte)
+- Distribuita naturalmente nel resto del testo
+
+CONTA LE OCCORRENZE: devono essere ALMENO ${targetOccurrences}.
+
+=== ALTRE REGOLE ===
+- Mantieni TUTTE le immagini (<figure>, <img>) ESATTAMENTE come sono
+- Mantieni TUTTI i form ordine (<div class="wf-form">, <script>) ESATTAMENTE come sono
+- Mantieni TUTTE le recensioni (i div con ★) ESATTAMENTE come sono
+- Lunghezza: ${wc} parole
+- Struttura PAS: Problema → Agitazione → Soluzione → Recensioni → FAQ
+- SOLO HTML. Inizia con <p>.
+
+ARTICOLO DA RISCRIVERE:
+${art.body}`,
+          Math.max(wc * 4, 8000));
         let b = r.trim(); if (b.startsWith("```")) b = b.replace(/^```html?\s*/i, "").replace(/```\s*$/i, "").trim();
         setArt(p => ({ ...p, body: b }));
       } else if (key === "reviews") {
@@ -379,12 +407,16 @@ ${formEmbedHtml}
         const rev = extractJSON(r);
         if (rev && Array.isArray(rev)) setArt(p => ({ ...p, reviews: rev }));
       } else {
-        const r = await callAI(oaiKey, "SEO copywriter. SOLO il nuovo testo.",
-          `Rigenera ${key} per "${prod?.productName}". KW: "${art.keyword}". ${instr || "Ottimizza."}
-Attuale: ${art[key]}
-${key === "title" ? "DEVE contenere la keyword esatta. Max 70 car." : ""}
-${key === "metaTitle" ? "50-60 car con keyword esatta." : ""}
-${key === "metaDescription" ? "130-155 car con keyword e CTA." : ""}`, 300);
+        const r = await callAI(oaiKey, "SEO copywriter italiano. Rispondi SOLO con il nuovo testo. Niente virgolette intorno.",
+          `Rigenera ${key} per un articolo su "${prod?.productName}".
+KEYWORD LONG TAIL: "${art.keyword}"
+${instr || "Ottimizza per SEO."}
+Valore attuale: ${art[key]}
+${key === "title" ? `DEVE contenere la keyword esatta "${art.keyword}". Max 70 caratteri.` : ""}
+${key === "metaTitle" ? `DEVE essere 50-60 caratteri e contenere "${art.keyword}" per intero.` : ""}
+${key === "metaDescription" ? `DEVE essere 130-155 caratteri. DEVE contenere "${art.keyword}". Aggiungi una call to action tipo "Scopri il metodo naturale" o "Leggi la guida completa".` : ""}
+${key === "slug" ? `Slug SEO-friendly basato sulla keyword "${art.keyword}". Solo lettere minuscole e trattini.` : ""}
+Rispondi SOLO con il nuovo testo, nient'altro.`, 300);
         setArt(p => ({ ...p, [key]: r.trim().replace(/^["']|["']$/g, "") }));
       }
     } catch (e) { setError(e.message); }
