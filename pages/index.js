@@ -24,14 +24,14 @@ function extractJSON(text) {
 }
 
 // --- AI text via proxy (GPT-4o Mini) ---
-async function callAI(apiKey, system, user, maxTokens = 4096) {
+async function callAI(apiKey, model, system, user, maxTokens = 4096) {
   const res = await fetch("/api/ai", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       endpoint: "chat",
       apiKey,
-      payload: { model: "gpt-4o-mini", max_tokens: maxTokens, temperature: 0.7, messages: [{ role: "system", content: system }, { role: "user", content: user }] },
+      payload: { model, max_tokens: maxTokens, temperature: 0.7, messages: [{ role: "system", content: system }, { role: "user", content: user }] },
     }),
   });
   if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || `API ${res.status}`); }
@@ -74,24 +74,42 @@ function SeoScore({ article, targetWords }) {
   const t = article.title || "", mt = article.metaTitle || "", md = article.metaDescription || "";
   const b = article.body || "", kw = (article.keyword || "").toLowerCase();
   const bt = b.replace(/<[^>]*>/g, ""), wcc = bt.split(/\s+/).filter(Boolean).length;
-  const checks = [];
+  // Fuzzy keyword check: all significant words (ignoring articles/prepositions) must be present
+  const stopWords = ["il","lo","la","i","gli","le","di","del","dello","della","dei","degli","delle","a","al","allo","alla","ai","agli","alle","da","dal","dallo","dalla","dai","dagli","dalle","in","nel","nello","nella","nei","negli","nelle","con","su","sul","sullo","sulla","sui","sugli","sulle","per","tra","fra","un","uno","una","e","o","ma","che","come","se","non","più"];
+  const kwWords = kw.split(/\s+/).filter(w => !stopWords.includes(w) && w.length > 2);
+  const fuzzyMatch = (text) => {
+    const tl = text.toLowerCase();
+    return kwWords.length > 0 && kwWords.every(w => tl.includes(w));
+  };
+  // Count keyword occurrences - also fuzzy (count paragraphs that contain all keyword words)
+  const countKwOccurrences = (text) => {
+    const tl = text.toLowerCase();
+    // Try exact match first
+    const exactRe = new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
+    const exact = (tl.match(exactRe) || []).length;
+    if (exact > 0) return exact;
+    // Fuzzy: count sentences that contain ALL significant keyword words
+    const sentences = tl.split(/[.!?]+/);
+    return sentences.filter(s => kwWords.every(w => s.includes(w))).length;
+  };
+
   checks.push({ l: "Titolo H1", p: t.length > 10, d: `${t.length} car.` });
-  checks.push({ l: "KW nel titolo", p: kw && t.toLowerCase().includes(kw), d: kw && t.toLowerCase().includes(kw) ? "✓" : "✗" });
+  checks.push({ l: "KW nel titolo", p: kw && fuzzyMatch(t), d: kw && fuzzyMatch(t) ? "✓" : "✗" });
   checks.push({ l: "Long tail (4+ parole)", p: kw.split(/\s+/).length >= 4, d: `${kw.split(/\s+/).length} parole` });
   checks.push({ l: "Meta title (50-60)", p: mt.length >= 40 && mt.length <= 65, d: `${mt.length}` });
-  checks.push({ l: "KW nel meta title", p: kw && mt.toLowerCase().includes(kw), d: kw && mt.toLowerCase().includes(kw) ? "✓" : "✗" });
+  checks.push({ l: "KW nel meta title", p: kw && fuzzyMatch(mt), d: kw && fuzzyMatch(mt) ? "✓" : "✗" });
   checks.push({ l: "Meta desc (120-160)", p: md.length >= 100 && md.length <= 165, d: `${md.length}` });
-  checks.push({ l: "KW nella meta desc", p: kw && md.toLowerCase().includes(kw), d: kw && md.toLowerCase().includes(kw) ? "✓" : "✗" });
+  checks.push({ l: "KW nella meta desc", p: kw && fuzzyMatch(md), d: kw && fuzzyMatch(md) ? "✓" : "✗" });
   const minW = Math.round(targetWords * 0.75);
   checks.push({ l: `Lunghezza ≥${minW}`, p: wcc >= minW, d: `${wcc}` });
   checks.push({ l: "H2 ≥ 3", p: (b.match(/<h2/gi) || []).length >= 3, d: `${(b.match(/<h2/gi) || []).length}` });
   checks.push({ l: "H3 presenti", p: (b.match(/<h3/gi) || []).length >= 1, d: `${(b.match(/<h3/gi) || []).length}` });
   if (kw) {
-    const n = (bt.match(new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi")) || []).length;
+    const n = countKwOccurrences(bt);
     const dens = ((n / Math.max(wcc, 1)) * 100).toFixed(1);
-    checks.push({ l: "Densità KW (1-3%)", p: dens >= 0.8 && dens <= 3.5, d: `${dens}%` });
+    checks.push({ l: "Densità KW (1-3%)", p: dens >= 0.8 && dens <= 3.5, d: `${dens}% (${n}x)` });
   }
-  checks.push({ l: "Form ordine", p: /wf-form|affiliateproject|embed/i.test(b), d: /wf-form/i.test(b) ? "✓" : "✗" });
+  checks.push({ l: "Form ordine", p: /wf-form|affiliateproject|ordina-ora/i.test(b), d: /wf-form|ordina-ora/i.test(b) ? "✓" : "✗" });
   checks.push({ l: "FAQ", p: /faq|domande frequenti/i.test(b), d: /faq/i.test(b) ? "✓" : "✗" });
   checks.push({ l: "Recensioni", p: /recensione|testimonianza|★/i.test(b), d: /★/i.test(b) ? "✓" : "✗" });
   checks.push({ l: "Immagini", p: (b.match(/<img/gi) || []).length >= 1, d: `${(b.match(/<img/gi) || []).length}` });
@@ -166,6 +184,7 @@ export default function Home() {
   const [wpUser, setWpUser] = useState("pascucci.moreno3@gmail.com");
   const [wpPass, setWpPass] = useState("");
   const [oaiKey, setOaiKey] = useState("");
+  const [aiModel, setAiModel] = useState("gpt-4.1");
   const [showCfg, setShowCfg] = useState(true);
   const [imgMode, setImgMode] = useState("unsplash"); // "unsplash" or "dalle"
 
@@ -218,7 +237,7 @@ export default function Home() {
       }
 
       setStatus("🧠 Analizzo il prodotto dalla landing page...");
-      const p1 = await callAI(oaiKey,
+      const p1 = await callAI(oaiKey, aiModel,
         "Sei un analista di marketing esperto. Analizza il contenuto di questa landing page e estrai le informazioni sul prodotto. Rispondi SOLO con JSON valido. Niente backtick. Niente testo extra.",
         `Ecco il contenuto testuale di una landing page di un prodotto:
 
@@ -252,7 +271,7 @@ RISPONDI SOLO con questo JSON:
 
       // STEP 2: Long Tail Keywords basate su INTENTO DI RICERCA
       setStatus("🔍 Ricerco long tail keyword per " + product.productName + "...");
-      const p2 = await callAI(oaiKey, "SEO specialist italiano esperto in long tail keyword e search intent. SOLO JSON. Niente backtick.",
+      const p2 = await callAI(oaiKey, aiModel, "SEO specialist italiano esperto in long tail keyword e search intent. SOLO JSON. Niente backtick.",
         `Genera una LONG TAIL KEYWORD basata sull'INTENTO DI RICERCA per questo prodotto.
 
 PRODOTTO: ${product.productName}
@@ -284,7 +303,7 @@ JSON:
 
       // STEP 3: Reviews
       setStatus("⭐ Genero recensioni realistiche...");
-      const revResult = await callAI(oaiKey, "Copywriter italiano. SOLO JSON array.",
+      const revResult = await callAI(oaiKey, aiModel, "Copywriter italiano. SOLO JSON array.",
         `4 recensioni REALISTICHE per "${product.productName}". Target: ${product.targetAudience}.\nNomi italiani cognome puntato (Lucia G., Francesca M.), età 38-62, città italiane, esperienza specifica con tempi, stelle 4-5, 40-60 parole.\nJSON array: [{"name":"","age":0,"city":"","stars":5,"text":""}]`, 800);
       let reviews = extractJSON(revResult);
       if (!reviews || !Array.isArray(reviews) || reviews.length < 4) {
@@ -320,7 +339,7 @@ JSON:
 
       const targetKwCount = Math.max(Math.round(wc / 50), 20);
 
-      const bodyResult = await callAI(oaiKey,
+      const bodyResult = await callAI(oaiKey, aiModel,
         `Sei un copywriter SEO italiano esperto in content marketing persuasivo per "Vivere Naturale". Scrivi con framework PAS (Problem-Agitate-Solve). SOLO HTML puro. Niente JSON, backtick o testo extra. Inizia con <p>.`,
         `SCRIVI UN ARTICOLO HTML DI ${wc} PAROLE.
 
@@ -408,7 +427,7 @@ ${formBottomHtml}
       if (key === "body") {
         // Calculate how many times the keyword should appear
         const targetOccurrences = Math.max(Math.round(wc / 50), 20);
-        const r = await callAI(oaiKey, "Copywriter SEO italiano esperto in keyword density. SOLO HTML puro. Niente backtick.",
+        const r = await callAI(oaiKey, aiModel, "Copywriter SEO italiano esperto in keyword density. SOLO HTML puro. Niente backtick.",
           `RISCRIVI questo articolo HTML applicando queste modifiche:
 
 ${instr || "Migliora la densità della keyword e la qualità SEO."}
@@ -439,12 +458,12 @@ ${art.body}`,
         let b = r.trim(); if (b.startsWith("```")) b = b.replace(/^```html?\s*/i, "").replace(/```\s*$/i, "").trim();
         setArt(p => ({ ...p, body: b }));
       } else if (key === "reviews") {
-        const r = await callAI(oaiKey, "Copywriter. SOLO JSON array.",
+        const r = await callAI(oaiKey, aiModel, "Copywriter. SOLO JSON array.",
           `4 nuove recensioni per "${prod?.productName}". Target: ${prod?.targetAudience}. Nomi italiani puntati, età, città, stelle 4-5, 40-60 parole. ${instr || ""}\nJSON: [{"name":"","age":0,"city":"","stars":0,"text":""}]`, 800);
         const rev = extractJSON(r);
         if (rev && Array.isArray(rev)) setArt(p => ({ ...p, reviews: rev }));
       } else {
-        const r = await callAI(oaiKey, "SEO copywriter italiano. Rispondi SOLO con il nuovo testo. Niente virgolette intorno.",
+        const r = await callAI(oaiKey, aiModel, "SEO copywriter italiano. Rispondi SOLO con il nuovo testo. Niente virgolette intorno.",
           `Rigenera ${key} per un articolo su "${prod?.productName}".
 KEYWORD LONG TAIL: "${art.keyword}"
 ${instr || "Ottimizza per SEO."}
@@ -585,6 +604,11 @@ Rispondi SOLO con il nuovo testo, nient'altro.`, 300);
               <div style={{ marginTop: 10, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
                 {wpOk && <span style={{ padding: "4px 10px", background: "rgba(34,197,94,.1)", borderRadius: 5, color: "#22c55e", fontSize: 11 }}>✅ WP</span>}
                 {aiOk && <span style={{ padding: "4px 10px", background: "rgba(99,102,241,.1)", borderRadius: 5, color: "#818cf8", fontSize: 11 }}>✅ OpenAI</span>}
+                <span style={{ color: "#64748b", fontSize: 11 }}>|</span>
+                <span style={{ color: "#94a3b8", fontSize: 11 }}>Modello:</span>
+                <button onClick={() => setAiModel("gpt-4.1")} style={{ background: aiModel === "gpt-4.1" ? "#6366f1" : "#2a2a4a", border: "none", color: "#fff", padding: "4px 10px", borderRadius: 5, cursor: "pointer", fontSize: 10 }}>🧠 GPT-4.1 (~$0.15)</button>
+                <button onClick={() => setAiModel("gpt-4.1-mini")} style={{ background: aiModel === "gpt-4.1-mini" ? "#6366f1" : "#2a2a4a", border: "none", color: "#fff", padding: "4px 10px", borderRadius: 5, cursor: "pointer", fontSize: 10 }}>⚡ GPT-4.1 Mini (~$0.03)</button>
+                <button onClick={() => setAiModel("gpt-4o-mini")} style={{ background: aiModel === "gpt-4o-mini" ? "#6366f1" : "#2a2a4a", border: "none", color: "#fff", padding: "4px 10px", borderRadius: 5, cursor: "pointer", fontSize: 10 }}>💰 GPT-4o Mini (~$0.01)</button>
                 <span style={{ color: "#64748b", fontSize: 11 }}>|</span>
                 <span style={{ color: "#94a3b8", fontSize: 11 }}>Immagini:</span>
                 <button onClick={() => setImgMode("unsplash")} style={{ background: imgMode === "unsplash" ? "#6366f1" : "#2a2a4a", border: "none", color: "#fff", padding: "4px 10px", borderRadius: 5, cursor: "pointer", fontSize: 10 }}>📷 Unsplash (gratis)</button>
