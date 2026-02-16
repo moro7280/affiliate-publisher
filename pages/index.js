@@ -77,6 +77,7 @@ function SeoScore({ article, targetWords }) {
   const checks = [];
   checks.push({ l: "Titolo H1", p: t.length > 10, d: `${t.length} car.` });
   checks.push({ l: "KW nel titolo", p: kw && t.toLowerCase().includes(kw), d: kw && t.toLowerCase().includes(kw) ? "✓" : "✗" });
+  checks.push({ l: "Long tail (4+ parole)", p: kw.split(/\s+/).length >= 4, d: `${kw.split(/\s+/).length} parole` });
   checks.push({ l: "Meta title (50-60)", p: mt.length >= 40 && mt.length <= 65, d: `${mt.length}` });
   checks.push({ l: "KW nel meta title", p: kw && mt.toLowerCase().includes(kw), d: kw && mt.toLowerCase().includes(kw) ? "✓" : "✗" });
   checks.push({ l: "Meta desc (120-160)", p: md.length >= 100 && md.length <= 165, d: `${md.length}` });
@@ -90,7 +91,7 @@ function SeoScore({ article, targetWords }) {
     const dens = ((n / Math.max(wcc, 1)) * 100).toFixed(1);
     checks.push({ l: "Densità KW (1-3%)", p: dens >= 0.8 && dens <= 3.5, d: `${dens}%` });
   }
-  checks.push({ l: "CTA", p: /href=.*offert|SCOPRI|ORDINA/i.test(b), d: /href/i.test(b) ? "✓" : "✗" });
+  checks.push({ l: "Form ordine", p: /wf-form|affiliateproject|embed/i.test(b), d: /wf-form/i.test(b) ? "✓" : "✗" });
   checks.push({ l: "FAQ", p: /faq|domande frequenti/i.test(b), d: /faq/i.test(b) ? "✓" : "✗" });
   checks.push({ l: "Recensioni", p: /recensione|testimonianza|★/i.test(b), d: /★/i.test(b) ? "✓" : "✗" });
   checks.push({ l: "Immagini", p: (b.match(/<img/gi) || []).length >= 1, d: `${(b.match(/<img/gi) || []).length}` });
@@ -169,7 +170,7 @@ export default function Home() {
   const [imgMode, setImgMode] = useState("unsplash"); // "unsplash" or "dalle"
 
   const [pLink, setPLink] = useState("");
-  const [fLink, setFLink] = useState("");
+  const [embedCode, setEmbedCode] = useState("");
   const [wc, setWc] = useState(1000);
 
   const [step, setStep] = useState("input");
@@ -194,10 +195,10 @@ export default function Home() {
       setStatus("🔍 Analizzo il prodotto...");
       const p1 = await callAI(oaiKey,
         "Esperto affiliate marketing italiano. SOLO JSON valido. Niente backtick.",
-        `Link prodotto: ${pLink}\nLink form: ${fLink}\nNetwork: offerte2019.network (salute/bellezza Italia)\nSe contiene "eslow"→Eslow Age siero anti-age con esosomi vegetali, acido ialuronico, elastina, collagene. 2x€49.99.\nAnalizza URL e deduci.\n\nJSON:\n{"productName":"","category":"bellezza|salute","targetAudience":"","mainBenefits":["","","","",""],"ingredients":["","","",""],"price":"","niche":"","keyFeatures":["","",""]}`, 700);
+        `Link prodotto: ${pLink}\nNetwork: offerte2019.network (salute/bellezza Italia)\nSe contiene "eslow"→Eslow Age siero anti-age con esosomi vegetali, acido ialuronico, elastina, collagene. 2x€49.99.\nAnalizza URL e deduci.\n\nJSON:\n{"productName":"","category":"bellezza|salute","targetAudience":"","mainBenefits":["","","","",""],"ingredients":["","","",""],"price":"","niche":"","keyFeatures":["","",""]}`, 700);
       let product = extractJSON(p1);
       if (!product || !product.productName) {
-        const u = (pLink + fLink).toLowerCase();
+        const u = (pLink + embedCode).toLowerCase();
         if (u.includes("eslow")) {
           product = { productName: "Eslow Age", category: "bellezza", targetAudience: "Donne 35-65 anni con rughe e perdita di elasticità", mainBenefits: ["Riduce rughe e segni d'espressione", "Stimola collagene ed elastina", "Idratazione profonda", "Rinnovamento cellulare con esosomi", "Effetto lifting naturale"], ingredients: ["Esosomi vegetali", "Acido Ialuronico", "Elastina", "Collagene"], price: "2x €49.99", niche: "Anti-age esosomi vegetali", keyFeatures: ["Esosomi vegetali ultima generazione", "100% naturale", "8847+ clienti soddisfatti"] };
         } else {
@@ -206,16 +207,36 @@ export default function Home() {
       }
       setProd(product);
 
-      // STEP 2: SEO Meta
-      setStatus("🏷️ Creo metadati SEO per " + product.productName + "...");
-      const p2 = await callAI(oaiKey, "SEO specialist italiano. SOLO JSON. Niente backtick.",
-        `Metadati SEO per "${product.productName}" su viverenaturale.blog.\nNicchia: ${product.niche}. Target: ${product.targetAudience}.\nREGOLA: keyword DEVE contenere "${product.productName.toLowerCase()}". Il titolo DEVE contenere la keyword ESATTA.\nJSON: {"keyword":"","title":"max 70 car CON keyword","metaTitle":"50-60 car con keyword","metaDescription":"130-155 car","slug":"","excerpt":"2 frasi","tags":["","","","",""]}`, 500);
+      // STEP 2: Long Tail Keywords basate su INTENTO DI RICERCA (non nome prodotto)
+      setStatus("🔍 Ricerco long tail keyword per " + product.productName + "...");
+      const p2 = await callAI(oaiKey, "SEO specialist italiano esperto in long tail keyword e search intent. SOLO JSON. Niente backtick.",
+        `Genera una LONG TAIL KEYWORD basata sull'INTENTO DI RICERCA dell'utente per un prodotto come "${product.productName}".
+
+CATEGORIA: ${product.category}
+TARGET: ${product.targetAudience}
+PROBLEMA CHE RISOLVE: ${product.mainBenefits.join(", ")}
+NICCHIA: ${product.niche}
+
+REGOLE IMPORTANTI:
+- La keyword NON deve contenere il nome del prodotto "${product.productName}"
+- Deve essere una long tail keyword (4-8 parole) basata su cosa cercherebbe l'utente su Google
+- Deve riflettere un PROBLEMA o un INTENTO DI RICERCA reale
+- Esempi di buone long tail: "come eliminare le rughe profonde in modo naturale", "siero anti rughe naturale che funziona davvero", "rimedi naturali per pelle cadente dopo i 40", "come ringiovanire la pelle del viso senza chirurgia"
+- Il titolo deve essere tipo domanda/guida che attira click da Google
+- Lo slug deve essere lungo e SEO friendly
+
+JSON:
+{"keyword":"long tail 4-8 parole su intento ricerca","title":"Titolo H1 che risponde all'intento di ricerca (max 70 car)","metaTitle":"Meta title 50-60 car con keyword","metaDescription":"Meta description 130-155 car che promette la soluzione","slug":"slug-lungo-seo","excerpt":"2 frasi che descrivono il problema e la promessa","tags":["tag1","tag2","tag3","tag4","tag5"],"searchIntent":"descrizione dell intento di ricerca","problem":"il problema specifico del target","agitation":"perché il problema peggiora se non risolto"}`, 700);
       let meta = extractJSON(p2);
       if (!meta || !meta.keyword) {
-        meta = { keyword: product.productName.toLowerCase() + " siero anti-age", title: `${product.productName} Siero Anti-Age: Recensione e Opinioni (2026)`, metaTitle: `${product.productName} Siero Anti-Age: Funziona? Opinioni`, metaDescription: `Scopri ${product.productName}: benefici, ingredienti, opinioni verificate. Guida completa + offerta 2x1 esclusiva.`, slug: product.productName.toLowerCase().replace(/\s+/g, "-") + "-recensione", excerpt: `Recensione di ${product.productName}: funziona? Ingredienti e opinioni.`, tags: [product.productName.toLowerCase(), "anti-age", "siero", "recensione", "2026"] };
-      }
-      if (!meta.title.toLowerCase().includes(meta.keyword.toLowerCase())) {
-        meta.title = `${meta.keyword.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ")}: Recensione e Opinioni (2026)`;
+        // Fallback con long tail generiche per categoria
+        const fallbacks = {
+          bellezza: { keyword: "come eliminare le rughe del viso in modo naturale", problem: "Le rughe e i segni del tempo che avanzano", agitation: "Ogni giorno che passa le rughe diventano più profonde e visibili" },
+          salute: { keyword: "rimedi naturali efficaci per il benessere quotidiano", problem: "Lo stress e le abitudini moderne che deteriorano la salute", agitation: "Ignorare i segnali del corpo porta a problemi sempre più seri" },
+          rimedi: { keyword: "soluzioni naturali senza effetti collaterali", problem: "Problemi di salute che non trovano soluzione", agitation: "I farmaci tradizionali spesso portano effetti collaterali indesiderati" },
+        };
+        const fb = fallbacks[product.category] || fallbacks.bellezza;
+        meta = { keyword: fb.keyword, title: `${fb.keyword.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ")}: Guida Definitiva`, metaTitle: `${fb.keyword} | Metodo Naturale Efficace`, metaDescription: `Scopri ${fb.keyword}. Metodo comprovato, ingredienti naturali, risultati visibili. Leggi la guida completa con testimonianze reali.`, slug: fb.keyword.replace(/\s+/g, "-"), excerpt: `Guida completa: ${fb.keyword}. Scopri il metodo naturale che sta cambiando la vita di migliaia di persone.`, tags: [product.category, "naturale", "rimedi", "guida", "2026"], searchIntent: `L'utente cerca una soluzione a: ${fb.problem}`, problem: fb.problem, agitation: fb.agitation };
       }
 
       // STEP 3: Reviews
@@ -244,48 +265,94 @@ export default function Home() {
       if (!img1) img1 = getRandomImage("ingredients");
       if (!img2) img2 = getRandomImage("results");
 
-      // STEP 5: Body
-      setStatus(`✍️ Scrivo articolo su ${product.productName} (${wc} parole)...`);
+      // STEP 5: Body con struttura PAS (Problem → Agitate → Solve)
+      setStatus(`✍️ Scrivo articolo PAS su "${meta.keyword}" (${wc} parole)...`);
       const reviewsHtml = reviews.map(r => `<div style="background:#f8f9fa;border-radius:12px;padding:20px;margin:12px 0;border-left:4px solid #6366f1"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><strong style="color:#1a1a2e">${r.name}</strong><span style="color:#f59e0b;font-size:16px">${"★".repeat(r.stars)}${"☆".repeat(5 - (r.stars||5))}</span></div><p style="color:#374151;margin:0 0 6px;font-size:15px;line-height:1.6">"${r.text}"</p><span style="color:#6b7280;font-size:13px">${r.age} anni, ${r.city}</span></div>`).join("\n");
 
-      const ctaHtml = `<div style="background:linear-gradient(135deg,#667eea,#764ba2);border-radius:16px;padding:30px;text-align:center;margin:30px 0"><h3 style="color:#fff;margin:0 0 10px;font-size:22px">🎁 Offerta ${product.productName}</h3><p style="color:rgba(255,255,255,.9);margin:0 0 15px">${product.price} — Spedizione Gratuita</p><a href="${pLink}" target="_blank" rel="noopener" style="display:inline-block;background:#fff;color:#6366f1;padding:14px 40px;border-radius:50px;font-weight:700;text-decoration:none;font-size:18px">SCOPRI L'OFFERTA →</a></div>`;
+      const formEmbedHtml = `<div style="background:linear-gradient(135deg,#667eea,#764ba2);border-radius:16px;padding:30px;text-align:center;margin:30px 0"><h3 style="color:#fff;margin:0 0 15px;font-size:22px">🎁 Prova Adesso — Offerta Speciale</h3><p style="color:rgba(255,255,255,.9);margin:0 0 20px">${product.price} — Spedizione Gratuita 24/48h</p><div style="background:#fff;border-radius:12px;padding:20px;max-width:500px;margin:0 auto">${embedCode}</div></div>`;
 
       const bodyResult = await callAI(oaiKey,
-        `Copywriter SEO italiano per "Vivere Naturale". SOLO HTML. Niente JSON, niente backtick, inizia con <p>.`,
-        `ARTICOLO HTML di ${wc} parole su "${product.productName}".
+        `Sei un copywriter SEO italiano esperto in content marketing persuasivo per "Vivere Naturale". Scrivi articoli con framework PAS (Problem-Agitate-Solve). SOLO HTML puro. Niente JSON, niente backtick, niente testo extra. Inizia direttamente con <p>.`,
+        `SCRIVI UN ARTICOLO HTML DI ${wc} PAROLE.
 
-KEYWORD: "${meta.keyword}" — DEVE apparire almeno ${Math.max(Math.round(wc / 80), 10)} volte nel testo.
+=== STRATEGIA SEO LONG TAIL ===
+KEYWORD PRINCIPALE: "${meta.keyword}"
+INTENTO DI RICERCA: ${meta.searchIntent || "L'utente cerca una soluzione naturale al problema"}
+REGOLA: La keyword "${meta.keyword}" DEVE apparire almeno ${Math.max(Math.round(wc / 70), 12)} volte nel testo, distribuita naturalmente.
+Il nome del prodotto "${product.productName}" NON deve apparire prima della sezione SOLUZIONE. Prima devi parlare solo del PROBLEMA.
 
+=== DATI PRODOTTO (da usare SOLO nella sezione Soluzione) ===
+NOME: ${product.productName}
 BENEFICI: ${product.mainBenefits.join(", ")}
 INGREDIENTI: ${product.ingredients.join(", ")}
 TARGET: ${product.targetAudience}
 PREZZO: ${product.price}
-LINK: ${pLink}
 
-INSERISCI QUESTE IMMAGINI (HTML ESATTO):
-Dopo ingredienti: <figure style="margin:24px 0;text-align:center"><img src="${img1}" alt="${meta.keyword} ingredienti" style="width:100%;border-radius:12px;max-height:400px;object-fit:cover"/><figcaption style="color:#666;font-size:14px;margin-top:8px">Ingredienti naturali di ${product.productName}</figcaption></figure>
+=== STRUTTURA PAS OBBLIGATORIA ===
 
-Dopo recensioni: <figure style="margin:24px 0;text-align:center"><img src="${img2}" alt="${meta.keyword} risultati" style="width:100%;border-radius:12px;max-height:400px;object-fit:cover"/><figcaption style="color:#666;font-size:14px;margin-top:8px">Risultati con ${product.productName}</figcaption></figure>
+--- PARTE 1: PROBLEMA (25% dell'articolo) ---
+<p>[Hook emotivo. L'utente deve pensare "parla proprio di me". Usa la keyword nelle prime 2 frasi. Descrivi il PROBLEMA che il target vive quotidianamente. Usa "tu" diretto. Empatia totale.]</p>
 
-CTA BOX (inserisci 3 volte): ${ctaHtml}
+<h2>[Titolo H2 che descrive il problema con keyword — es: "Perché le Rughe Profonde Sembrano Impossibili da Eliminare"]</h2>
+<h3>[Sotto-problema 1]</h3>
+<p>[Descrivi il problema con dettagli specifici e relatabili. Statistiche, fatti.]</p>
+<h3>[Sotto-problema 2]</h3>
+<p>[Un altro aspetto del problema che il target riconosce.]</p>
+<h3>[Sotto-problema 3]</h3>
+<p>[Impatto emotivo/sociale del problema.]</p>
 
-SEZIONE RECENSIONI (dopo "Opinioni"):
-<h2>Recensioni Verificate su ${product.productName}</h2>
-<p>${product.productName} ha migliaia di feedback positivi:</p>
+<figure style="margin:24px 0;text-align:center"><img src="${img1}" alt="${meta.keyword}" style="width:100%;border-radius:12px;max-height:400px;object-fit:cover"/><figcaption style="color:#666;font-size:14px;margin-top:8px">Il problema che affligge milioni di persone</figcaption></figure>
+
+--- PARTE 2: AGITAZIONE (20% dell'articolo) ---
+<h2>[Titolo H2 che amplifica il problema — es: "Cosa Succede Se Non Intervieni Adesso"]</h2>
+<p>[Aggrava il problema. Spiega perché peggiorerà. Cosa succede se non si agisce. Frustrazioni dei rimedi che non funzionano. Creme costose inutili, trattamenti invasivi, promesse non mantenute.]</p>
+<h3>[Perché i rimedi tradizionali falliscono]</h3>
+<p>[Spiega perché le soluzioni comuni non funzionano davvero. Sii specifico.]</p>
+<h3>[Il costo dell'inazione]</h3>
+<p>[Conseguenze emotive, estetiche, di autostima. Crea urgenza.]</p>
+
+--- PARTE 3: SOLUZIONE (35% dell'articolo) ---
+<h2>[Titolo H2 che introduce la soluzione — es: "La Scoperta Scientifica che Sta Cambiando Tutto"]</h2>
+<p>[Qui introduci ${product.productName} come LA soluzione. Spiega PERCHÉ funziona diversamente dagli altri. Base scientifica. Ingredienti innovativi.]</p>
+
+<h3>[Come funziona — meccanismo d'azione]</h3>
+<p>[Spiega il meccanismo: ${product.ingredients.join(", ")}. Perché questi ingredienti sono diversi.]</p>
+
+<h3>[I risultati concreti]</h3>
+<p>[Benefici specifici con tempi: "già dalla prima settimana...", "dopo 30 giorni..."]</p>
+
+<h3>[Come si usa]</h3>
+<p>[Istruzioni pratiche di utilizzo.]</p>
+
+${formEmbedHtml}
+
+--- PARTE 4: PROVA SOCIALE — RECENSIONI (15% dell'articolo) ---
+<h2>Testimonianze di Chi Ha Già Provato</h2>
+<p>Migliaia di persone hanno già trovato la soluzione. Ecco le loro esperienze:</p>
 ${reviewsHtml}
 
-STRUTTURA:
-1. <p> Intro con keyword nelle prime 2 frasi
-2. <h2> Cos'è ${product.productName}</h2> con <h3>
-3. <h2> Benefici</h2> con <h3> per ogni beneficio
-4. <h2> Ingredienti</h2> con <h3> [IMMAGINE 1] [CTA 1]
-5. <h2> Come Usare</h2>
-6. <h2> Recensioni</h2> [RECENSIONI] [IMMAGINE 2] [CTA 2]
-7. <h2> Controindicazioni</h2>
-8. <div class="faq-schema"><h2>FAQ</h2> con 5 domande</div>
-9. <h2> Conclusione</h2> [CTA 3]
+<figure style="margin:24px 0;text-align:center"><img src="${img2}" alt="${meta.keyword} risultati" style="width:100%;border-radius:12px;max-height:400px;object-fit:cover"/><figcaption style="color:#666;font-size:14px;margin-top:8px">Risultati reali</figcaption></figure>
 
-${wc} parole. SOLO HTML.`, Math.max(wc * 3, 5000));
+${formEmbedHtml}
+
+--- PARTE 5: FAQ (5% dell'articolo) ---
+<div class="faq-schema">
+<h2>Domande Frequenti</h2>
+[5 domande basate sull'INTENTO DI RICERCA, non sul prodotto. Es: "È possibile eliminare le rughe senza chirurgia?", "Quanto tempo serve per vedere risultati?", "Ci sono effetti collaterali?", "Funziona anche per pelli sensibili?", "Come ordinare e quanto costa?"]
+Ogni domanda come <h3> con risposta <p>
+</div>
+
+${formEmbedHtml}
+
+=== REGOLE DI SCRITTURA ===
+- Tono: giornalistico ma empatico, come un'amica esperta che ti consiglia
+- NON menzionare "${product.productName}" prima della sezione SOLUZIONE
+- Keyword density "${meta.keyword}" 1.5-2.5%
+- Paragrafi brevi (2-3 frasi max)
+- Usa domande retoriche per mantenere attenzione
+- Transizioni emotive tra le sezioni
+- ESATTAMENTE ${wc} parole
+- SOLO HTML. Inizia con <p>.`, Math.max(wc * 3, 6000));
 
       let body = bodyResult.trim();
       if (body.startsWith("```")) body = body.replace(/^```html?\s*/i, "").replace(/```\s*$/i, "").trim();
@@ -302,7 +369,7 @@ ${wc} parole. SOLO HTML.`, Math.max(wc * 3, 5000));
     try {
       if (key === "body") {
         const r = await callAI(oaiKey, "Copywriter SEO italiano. SOLO HTML.",
-          `RISCRIVI articolo su ${prod?.productName}. Keyword: "${art.keyword}" (densità 1.5-2.5%). ${instr || "Migliora SEO."} Mantieni immagini, CTA, recensioni. ${wc} parole. Link: ${pLink}\n\n${art.body}`,
+          `RISCRIVI articolo su ${prod?.productName}. Keyword: "${art.keyword}" (densità 1.5-2.5%). ${instr || "Migliora SEO."} Mantieni immagini, form ordine embed, recensioni. ${wc} parole. Link: ${pLink}\n\n${art.body}`,
           Math.max(wc * 3, 5000));
         let b = r.trim(); if (b.startsWith("```")) b = b.replace(/^```html?\s*/i, "").replace(/```\s*$/i, "").trim();
         setArt(p => ({ ...p, body: b }));
@@ -354,21 +421,64 @@ ${key === "metaDescription" ? "130-155 car con keyword e CTA." : ""}`, 300);
     setStep("publishing"); setError("");
     try {
       const auth = btoa(`${wpUser}:${wpPass}`);
+      const headers = { Authorization: `Basic ${auth}` };
       let featId = 0;
+
+      // Upload featured image
       if (art.featuredImage) {
-        setStatus("📤 Carico immagine evidenza...");
+        setStatus("📤 Carico immagine in evidenza su WordPress...");
         try {
-          const blob = await (await fetch(art.featuredImage)).blob();
-          const fd = new FormData(); fd.append("file", blob, `${art.slug}-hero.png`); fd.append("alt_text", art.keyword);
-          const r = await fetch(`${wpUrl}/wp-json/wp/v2/media`, { method: "POST", headers: { Authorization: `Basic ${auth}` }, body: fd });
-          if (r.ok) featId = (await r.json()).id;
-        } catch {}
+          // Fetch image via our proxy to avoid CORS
+          const imgRes = await fetch("/api/proxy-image", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url: art.featuredImage }),
+          });
+
+          if (imgRes.ok) {
+            const imgBlob = await imgRes.blob();
+            const fileName = `${art.slug || "hero"}-${Date.now()}.jpg`;
+            const fd = new FormData();
+            fd.append("file", imgBlob, fileName);
+            fd.append("alt_text", art.keyword || art.title);
+            fd.append("caption", art.title);
+
+            const uploadRes = await fetch(`${wpUrl}/wp-json/wp/v2/media`, {
+              method: "POST",
+              headers: { Authorization: `Basic ${auth}` },
+              body: fd,
+            });
+
+            if (uploadRes.ok) {
+              const mediaData = await uploadRes.json();
+              featId = mediaData.id;
+            }
+          }
+        } catch (imgErr) {
+          console.warn("Errore upload immagine:", imgErr);
+        }
       }
-      setStatus("📤 Pubblico articolo...");
-      const post = { title: art.title, content: art.body, status: "draft", slug: art.slug, excerpt: art.excerpt,
-        meta: { _yoast_wpseo_title: art.metaTitle, _yoast_wpseo_metadesc: art.metaDescription, _yoast_wpseo_focuskw: art.keyword } };
+
+      setStatus("📤 Pubblico articolo su WordPress...");
+      const post = {
+        title: art.title,
+        content: art.body,
+        status: "draft",
+        slug: art.slug,
+        excerpt: art.excerpt,
+        meta: {
+          _yoast_wpseo_title: art.metaTitle,
+          _yoast_wpseo_metadesc: art.metaDescription,
+          _yoast_wpseo_focuskw: art.keyword,
+        },
+      };
       if (featId) post.featured_media = featId;
-      const r = await fetch(`${wpUrl}/wp-json/wp/v2/posts`, { method: "POST", headers: { Authorization: `Basic ${auth}`, "Content-Type": "application/json" }, body: JSON.stringify(post) });
+
+      const r = await fetch(`${wpUrl}/wp-json/wp/v2/posts`, {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify(post),
+      });
       if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(`WP ${r.status}: ${e.message || "Errore"}`); }
       const res = await r.json();
       setArt(p => ({ ...p, wpId: res.id, wpLink: res.link, wpEdit: `${wpUrl}/wp-admin/post.php?post=${res.id}&action=edit` }));
@@ -387,8 +497,8 @@ ${key === "metaDescription" ? "130-155 car con keyword e CTA." : ""}`, 300);
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <span style={{ fontSize: 24 }}>🚀</span>
             <div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: "#fff" }}>AI Affiliate Publisher <span style={{ fontSize: 10, color: "#818cf8" }}>v6.1</span></div>
-              <div style={{ fontSize: 10, color: "#64748b" }}>GPT-4o Mini + DALL-E 3 + Recensioni → WordPress + Yoast</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#fff" }}>AI Affiliate Publisher <span style={{ fontSize: 10, color: "#818cf8" }}>v7</span></div>
+              <div style={{ fontSize: 10, color: "#64748b" }}>Long Tail SEO + PAS Framework + Form Embed → WordPress + Yoast</div>
             </div>
           </div>
           <button onClick={() => setShowCfg(!showCfg)} style={{ background: showCfg ? "#6366f1" : "#2a2a4a", border: "none", color: "#fff", padding: "6px 12px", borderRadius: 7, cursor: "pointer", fontSize: 12 }}>⚙️</button>
@@ -429,8 +539,9 @@ ${key === "metaDescription" ? "130-155 car con keyword e CTA." : ""}`, 300);
                 <input value={pLink} onChange={e => setPLink(e.target.value)} placeholder="https://offerte2019.store/..." style={{ ...I, padding: "12px 14px", borderRadius: 10 }} />
               </div>
               <div style={{ marginBottom: 16 }}>
-                <label style={{ color: "#e2e8f0", fontSize: 13, marginBottom: 4, display: "block" }}>🛒 Link Form</label>
-                <input value={fLink} onChange={e => setFLink(e.target.value)} placeholder="https://link.offerte2019.site/..." style={{ ...I, padding: "12px 14px", borderRadius: 10 }} />
+                <label style={{ color: "#e2e8f0", fontSize: 13, marginBottom: 4, display: "block" }}>📋 Codice Embed Form Ordine</label>
+                <textarea value={embedCode} onChange={e => setEmbedCode(e.target.value)} placeholder={'<div class="wf-form"></div><script>...</script>'} rows={4} style={{ ...I, padding: "12px 14px", borderRadius: 10, fontFamily: "monospace", fontSize: 11, resize: "vertical" }} />
+                <span style={{ color: "#64748b", fontSize: 10, marginTop: 2, display: "block" }}>Incolla il codice embed del form ordine affiliato</span>
               </div>
               <div style={{ marginBottom: 18 }}>
                 <label style={{ color: "#e2e8f0", fontSize: 13, marginBottom: 6, display: "block" }}>📏 Lunghezza</label>
@@ -443,7 +554,7 @@ ${key === "metaDescription" ? "130-155 car con keyword e CTA." : ""}`, 300);
                   ))}
                 </div>
               </div>
-              <button onClick={generate} disabled={!pLink || !fLink || !wpOk || !aiOk} style={{ width: "100%", background: (!pLink || !fLink || !wpOk || !aiOk) ? "#3a3a5a" : "linear-gradient(135deg,#6366f1,#8b5cf6)", border: "none", color: "#fff", padding: 14, borderRadius: 11, fontSize: 15, fontWeight: 700, cursor: (!pLink || !fLink || !wpOk || !aiOk) ? "not-allowed" : "pointer" }}>
+              <button onClick={generate} disabled={!pLink || !embedCode || !wpOk || !aiOk} style={{ width: "100%", background: (!pLink || !embedCode || !wpOk || !aiOk) ? "#3a3a5a" : "linear-gradient(135deg,#6366f1,#8b5cf6)", border: "none", color: "#fff", padding: 14, borderRadius: 11, fontSize: 15, fontWeight: 700, cursor: (!pLink || !embedCode || !wpOk || !aiOk) ? "not-allowed" : "pointer" }}>
                 🚀 Genera Articolo + Recensioni + Immagini
               </button>
               {!aiOk && <p style={{ color: "#f59e0b", fontSize: 11, textAlign: "center", marginTop: 8 }}>⚠️ Inserisci la API Key OpenAI nelle impostazioni per iniziare</p>}
@@ -528,7 +639,7 @@ ${key === "metaDescription" ? "130-155 car con keyword e CTA." : ""}`, 300);
               <p style={{ color: "#94a3b8", marginBottom: 16, fontSize: 13 }}>"{art.title}" salvato come bozza.</p>
               <div style={{ display: "flex", justifyContent: "center", gap: 8, flexWrap: "wrap" }}>
                 {art.wpEdit && <a href={art.wpEdit} target="_blank" rel="noopener noreferrer" style={{ background: "#6366f1", color: "#fff", padding: "9px 18px", borderRadius: 8, textDecoration: "none", fontWeight: 600, fontSize: 13 }}>✏️ Modifica su WP</a>}
-                <button onClick={() => { setStep("input"); setArt(null); setProd(null); setPLink(""); setFLink(""); }} style={{ background: "#22c55e", border: "none", color: "#fff", padding: "9px 18px", borderRadius: 8, cursor: "pointer", fontWeight: 600, fontSize: 13 }}>➕ Nuovo</button>
+                <button onClick={() => { setStep("input"); setArt(null); setProd(null); setPLink(""); setEmbedCode(""); }} style={{ background: "#22c55e", border: "none", color: "#fff", padding: "9px 18px", borderRadius: 8, cursor: "pointer", fontWeight: 600, fontSize: 13 }}>➕ Nuovo</button>
               </div>
             </div>
           )}
